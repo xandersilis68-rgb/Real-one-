@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Body Part Detector</title>
   <!-- MediaPipe Vision Bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js" crossorigin="anonymous" defer></script>
+  <script id="vision-script" src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js" crossorigin="anonymous" defer></script>
   <!-- MediaPipe Drawing Utilities -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.0/drawing_utils.js" crossorigin="anonymous" defer></script>
+  <script id="drawing-script" src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.0/drawing_utils.js" crossorigin="anonymous" defer></script>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -64,6 +64,20 @@
     #reset:hover {
       background-color: #c82333;
     }
+    #retry {
+      display: none;
+      margin: 10px auto;
+      padding: 10px 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    #retry:hover {
+      background-color: #0056b3;
+    }
     #canvas {
       display: block;
       margin: 20px auto;
@@ -101,6 +115,7 @@
     <p>Select an image file containing one or more people. The app will detect and overlay body parts for up to 4 individuals: triangular mesh for faces, lines and points for limbs and body.</p>
     <input type="file" id="upload" accept="image/*" disabled>
     <button id="reset">Reset</button>
+    <button id="retry">Retry Loading Models</button>
     <p id="model-loading">Loading models... This may take a moment.</p>
     <p id="loading">Processing image...</p>
     <p id="error"></p>
@@ -108,12 +123,105 @@
   </div>
 
   <script>
-    // Function to check if MediaPipe libraries are loaded
+    let visionScriptLoaded = false;
+    let drawingScriptLoaded = false;
+    let retryCount = 0;
+    const maxRetries = 2;
+
+    // Handle script load events
+    document.getElementById("vision-script").onload = () => {
+      visionScriptLoaded = true;
+      checkScriptsLoaded();
+    };
+    document.getElementById("vision-script").onerror = () => {
+      handleScriptError("MediaPipe vision bundle");
+    };
+    document.getElementById("drawing-script").onload = () => {
+      drawingScriptLoaded = true;
+      checkScriptsLoaded();
+    };
+    document.getElementById("drawing-script").onerror = () => {
+      handleScriptError("MediaPipe drawing utilities");
+    };
+
+    // Check if both scripts are loaded
+    function checkScriptsLoaded() {
+      if (visionScriptLoaded && drawingScriptLoaded) {
+        initializeMediaPipe();
+      }
+    }
+
+    // Handle script load errors
+    function handleScriptError(scriptName) {
+      if (retryCount < maxRetries) {
+        document.getElementById("error").textContent = `${scriptName} failed to load. Retrying...`;
+        document.getElementById("error").style.display = "block";
+        retryLoadScripts();
+      } else {
+        document.getElementById("error").textContent = `${scriptName} failed to load after retries. Please check your network, disable ad-blockers, or try Chrome/Edge.`;
+        document.getElementById("error").style.display = "block";
+        document.getElementById("model-loading").style.display = "none";
+        document.getElementById("retry").style.display = "block";
+      }
+    }
+
+    // Retry loading scripts with alternative CDN
+    function retryLoadScripts() {
+      retryCount++;
+      const visionScript = document.getElementById("vision-script");
+      const drawingScript = document.getElementById("drawing-script");
+      visionScript.src = `https://unpkg.com/@mediapipe/tasks-vision@0.10.14/vision_bundle.js`;
+      drawingScript.src = `https://unpkg.com/@mediapipe/drawing_utils@0.3.0/drawing_utils.js`;
+      visionScript.onload = () => {
+        visionScriptLoaded = true;
+        checkScriptsLoaded();
+      };
+      visionScript.onerror = () => {
+        handleScriptError("MediaPipe vision bundle (retry)");
+      };
+      drawingScript.onload = () => {
+        drawingScriptLoaded = true;
+        checkScriptsLoaded();
+      };
+      drawingScript.onerror = () => {
+        handleScriptError("MediaPipe drawing utilities (retry)");
+      };
+    }
+
+    // Retry button handler
+    document.getElementById("retry").addEventListener("click", () => {
+      retryCount = 0;
+      visionScriptLoaded = false;
+      drawingScriptLoaded = false;
+      document.getElementById("error").style.display = "none";
+      document.getElementById("model-loading").style.display = "block";
+      document.getElementById("retry").style.display = "none";
+      const visionScript = document.getElementById("vision-script");
+      const drawingScript = document.getElementById("drawing-script");
+      visionScript.src = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js";
+      drawingScript.src = "https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.0/drawing_utils.js";
+      visionScript.onload = () => {
+        visionScriptLoaded = true;
+        checkScriptsLoaded();
+      };
+      visionScript.onerror = () => {
+        handleScriptError("MediaPipe vision bundle");
+      };
+      drawingScript.onload = () => {
+        drawingScriptLoaded = true;
+        checkScriptsLoaded();
+      };
+      drawingScript.onerror = () => {
+        handleScriptError("MediaPipe drawing utilities");
+      };
+    });
+
+    // Check if MediaPipe libraries are loaded
     function checkMediaPipeLoaded() {
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error("MediaPipe libraries failed to load within 10 seconds."));
-        }, 10000);
+          reject(new Error("MediaPipe libraries failed to load within 20 seconds."));
+        }, 20000);
 
         function check() {
           if (window.FilesetResolver && window.PoseLandmarker && window.FaceLandmarker && window.DrawingUtils) {
@@ -127,164 +235,168 @@
       });
     }
 
-    // Initialize application
-    checkMediaPipeLoaded()
-      .then(() => {
-        const { PoseLandmarker, FaceLandmarker, FilesetResolver, DrawingUtils } = window;
+    // Initialize MediaPipe
+    function initializeMediaPipe() {
+      checkMediaPipeLoaded()
+        .then(() => {
+          const { PoseLandmarker, FaceLandmarker, FilesetResolver, DrawingUtils } = window;
 
-        let poseLandmarker;
-        let faceLandmarker;
-        let initPromise;
+          let poseLandmarker;
+          let faceLandmarker;
+          let initPromise;
 
-        // Initialize MediaPipe landmarkers with multi-person support
-        async function createLandmarkers() {
-          const vision = await FilesetResolver.forVisionTasks(
-            "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
-          );
+          // Initialize MediaPipe landmarkers with multi-person support
+          async function createLandmarkers() {
+            const vision = await FilesetResolver.forVisionTasks(
+              "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+            );
 
-          poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
-              delegate: "GPU"
-            },
-            runningMode: "IMAGE",
-            numPoses: 4
-          });
-
-          faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
-            baseOptions: {
-              modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
-              delegate: "GPU"
-            },
-            runningMode: "IMAGE",
-            numFaces: 4,
-            outputFaceBlendshapes: false,
-            outputFacialTransformationMatrixes: false
-          });
-        }
-
-        // Start initialization and handle completion
-        initPromise = createLandmarkers()
-          .then(() => {
-            document.getElementById("upload").disabled = false;
-            document.getElementById("model-loading").style.display = "none";
-          })
-          .catch(err => {
-            document.getElementById("error").textContent = `Error initializing models: ${err.message}. Try refreshing or using a different browser.`;
-            document.getElementById("error").style.display = "block";
-            document.getElementById("model-loading").style.display = "none";
-          });
-
-        // Handle file upload
-        const upload = document.getElementById("upload");
-        const reset = document.getElementById("reset");
-        const canvas = document.getElementById("canvas");
-        const ctx = canvas.getContext("2d");
-        const loading = document.getElementById("loading");
-        const error = document.getElementById("error");
-
-        upload.addEventListener("change", async (e) => {
-          const file = e.target.files[0];
-          if (!file) return;
-
-          loading.style.display = "block";
-          error.style.display = "none";
-
-          try {
-            // Wait for initialization to complete
-            await initPromise;
-
-            const img = new Image();
-            img.src = URL.createObjectURL(file);
-
-            await new Promise((resolve, reject) => {
-              img.onload = resolve;
-              img.onerror = reject;
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+              baseOptions: {
+                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+                delegate: "GPU"
+              },
+              runningMode: "IMAGE",
+              numPoses: 4
             });
 
-            // Set canvas size to match image
-            canvas.width = img.width;
-            canvas.height = img.height;
-
-            // Draw the original image
-            ctx.drawImage(img, 0, 0);
-
-            // Run pose detection (lines and points for limbs/body)
-            const poseResults = await poseLandmarker.detect(img);
-
-            // Run face detection (triangular mesh for face)
-            const faceResults = await faceLandmarker.detect(img);
-
-            // Drawing utilities
-            const drawingUtils = new DrawingUtils(ctx);
-
-            // Draw pose landmarks and connections for all detected poses
-            for (const landmarks of poseResults.landmarks) {
-              drawingUtils.drawLandmarks(landmarks, {
-                color: "#FF0000", // Red points for keypoints
-                lineWidth: 2
-              });
-              drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
-                color: "#00FF00", // Green lines for connections
-                lineWidth: 4
-              });
-            }
-
-            // Draw face mesh and features for all detected faces
-            for (const landmarks of faceResults.faceLandmarks) {
-              // Triangular mesh (tesselation) for face mask
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
-                color: "#C0C0C070", // Semi-transparent silver for triangles
-                lineWidth: 1
-              });
-
-              // Additional contours for eyes, eyebrows, lips, etc.
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
-                color: "#FF3030" // Red for right eye
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
-                color: "#FF3030"
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
-                color: "#30FF30" // Green for left eye
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, {
-                color: "#30FF30"
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
-                color: "#E0E0E0" // Gray for face oval
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
-                color: "#E0E0E0"
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, {
-                color: "#FF3030"
-              });
-              drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, {
-                color: "#30FF30"
-              });
-            }
-          } catch (err) {
-            error.textContent = `Error processing image: ${err.message}. Try a different image or browser.`;
-            error.style.display = "block";
-          } finally {
-            loading.style.display = "none";
+            faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+              baseOptions: {
+                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
+                delegate: "GPU"
+              },
+              runningMode: "IMAGE",
+              numFaces: 4,
+              outputFaceBlendshapes: false,
+              outputFacialTransformationMatrixes: false
+            });
           }
-        });
 
-        // Reset button to clear canvas and inputs
-        reset.addEventListener("click", () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          upload.value = "";
-          error.style.display = "none";
-          loading.style.display = "none";
+          // Start initialization and handle completion
+          initPromise = createLandmarkers()
+            .then(() => {
+              document.getElementById("upload").disabled = false;
+              document.getElementById("model-loading").style.display = "none";
+            })
+            .catch(err => {
+              document.getElementById("error").textContent = `Error initializing models: ${err.message}. Try refreshing or using a different browser.`;
+              document.getElementById("error").style.display = "block";
+              document.getElementById("model-loading").style.display = "none";
+              document.getElementById("retry").style.display = "block";
+            });
+
+          // Handle file upload
+          const upload = document.getElementById("upload");
+          const reset = document.getElementById("reset");
+          const canvas = document.getElementById("canvas");
+          const ctx = canvas.getContext("2d");
+          const loading = document.getElementById("loading");
+          const error = document.getElementById("error");
+
+          upload.addEventListener("change", async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            loading.style.display = "block";
+            error.style.display = "none";
+
+            try {
+              // Wait for initialization to complete
+              await initPromise;
+
+              const img = new Image();
+              img.src = URL.createObjectURL(file);
+
+              await new Promise((resolve, reject) => {
+                img.onload = resolve;
+                img.onerror = reject;
+              });
+
+              // Set canvas size to match image
+              canvas.width = img.width;
+              canvas.height = img.height;
+
+              // Draw the original image
+              ctx.drawImage(img, 0, 0);
+
+              // Run pose detection (lines and points for limbs/body)
+              const poseResults = await poseLandmarker.detect(img);
+
+              // Run face detection (triangular mesh for face)
+              const faceResults = await faceLandmarker.detect(img);
+
+              // Drawing utilities
+              const drawingUtils = new DrawingUtils(ctx);
+
+              // Draw pose landmarks and connections for all detected poses
+              for (const landmarks of poseResults.landmarks) {
+                drawingUtils.drawLandmarks(landmarks, {
+                  color: "#FF0000", // Red points for keypoints
+                  lineWidth: 2
+                });
+                drawingUtils.drawConnectors(landmarks, PoseLandmarker.POSE_CONNECTIONS, {
+                  color: "#00FF00", // Green lines for connections
+                  lineWidth: 4
+                });
+              }
+
+              // Draw face mesh and features for all detected faces
+              for (const landmarks of faceResults.faceLandmarks) {
+                // Triangular mesh (tesselation) for face mask
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_TESSELATION, {
+                  color: "#C0C0C070", // Semi-transparent silver for triangles
+                  lineWidth: 1
+                });
+
+                // Additional contours for eyes, eyebrows, lips, etc.
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE, {
+                  color: "#FF3030" // Red for right eye
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW, {
+                  color: "#FF3030"
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYE, {
+                  color: "#30FF30" // Green for left eye
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW, {
+                  color: "#30FF30"
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_FACE_OVAL, {
+                  color: "#E0E0E0" // Gray for face oval
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LIPS, {
+                  color: "#E0E0E0"
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS, {
+                  color: "#FF3030"
+                });
+                drawingUtils.drawConnectors(landmarks, FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS, {
+                  color: "#30FF30"
+                });
+              }
+            } catch (err) {
+              error.textContent = `Error processing image: ${err.message}. Try a different image or browser.`;
+              error.style.display = "block";
+            } finally {
+              loading.style.display = "none";
+            }
+          });
+
+          // Reset button to clear canvas and inputs
+          reset.addEventListener("click", () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            upload.value = "";
+            error.style.display = "none";
+            loading.style.display = "none";
+          });
+        })
+        .catch(err => {
+          document.getElementById("error").textContent = `Failed to load MediaPipe libraries: ${err.message}. Please click Retry, check your network, or use Chrome/Edge.`;
+          document.getElementById("error").style.display = "block";
+          document.getElementById("model-loading").style.display = "none";
+          document.getElementById("retry").style.display = "block";
         });
-      })
-      .catch(err => {
-        document.getElementById("error").textContent = `Failed to load MediaPipe libraries: ${err.message}. Please try refreshing, checking your network, or using Chrome/Edge.`;
-        document.getElementById("error").style.display = "block";
-        document.getElementById("model-loading").style.display = "none";
-      });
+    }
   </script>
 </body>
 </html>
